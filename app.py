@@ -1,16 +1,13 @@
-from flask import Flask, request, jsonify, session, render_template_string
+from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 import sqlite3
 import os
 import secrets
-import string
-from datetime import datetime, timedelta
+from datetime import datetime
 from functools import wraps
-import razorpay
 import hmac
 import hashlib
-import json
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
@@ -28,7 +25,7 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "voidxhub.db"
 
 # Credit Packages (Rupees → Credits)
 CREDIT_PACKAGES = {
-    "pack_100":  {"credits": 100,  "amount": 4900,  "label": "100 Credits - ₹49"},   # amount in paise
+    "pack_100":  {"credits": 100,  "amount": 4900,  "label": "100 Credits - ₹49"},
     "pack_300":  {"credits": 300,  "amount": 12900, "label": "300 Credits - ₹129"},
     "pack_700":  {"credits": 700,  "amount": 24900, "label": "700 Credits - ₹249"},
     "pack_1500": {"credits": 1500, "amount": 49900, "label": "1500 Credits - ₹499"},
@@ -98,14 +95,12 @@ def init_db():
         )
     """)
 
-    # Insert default feature costs
     for key, cost in FEATURE_COSTS.items():
         c.execute(
             "INSERT OR IGNORE INTO feature_costs (feature_key, credits, display_name) VALUES (?, ?, ?)",
             (key, cost, key.replace("_", " ").title())
         )
 
-    # Create default admin if not exists
     admin = c.execute("SELECT id FROM users WHERE username = ?", (ADMIN_USERNAME,)).fetchone()
     if not admin:
         c.execute(
@@ -302,6 +297,7 @@ def create_order():
     pack = CREDIT_PACKAGES[pack_id]
 
     try:
+        import razorpay
         client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
         order = client.order.create({
             "amount": pack["amount"],
@@ -343,7 +339,6 @@ def verify_payment():
     if not all([order_id, payment_id, signature]):
         return jsonify({"success": False, "message": "Missing payment data"}), 400
 
-    # Verify signature
     msg = f"{order_id}|{payment_id}"
     generated_sign = hmac.new(
         RAZORPAY_KEY_SECRET.encode(),
@@ -368,7 +363,6 @@ def verify_payment():
         conn.close()
         return jsonify({"success": True, "message": "Already processed", "credits": txn["credits_added"]})
 
-    # Update transaction + add credits
     conn.execute(
         "UPDATE transactions SET status = 'paid', razorpay_payment_id = ? WHERE id = ?",
         (payment_id, txn["id"])
