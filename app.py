@@ -4,6 +4,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import sqlite3
 import os
 import secrets
+import urllib.request
+import urllib.parse
 from datetime import datetime
 from functools import wraps
 import hmac
@@ -17,10 +19,10 @@ ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
 RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "rzp_test_xxxxx")
 RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "your_test_secret")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8618540927:AAELSHJCjpXYfDwomLTiFHG1AnGs7Ja5UJs")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "7994843509")
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "voidxhub.db")
 
-# Rate: 1 INR = 2 VxH Cr
-# amount is in paise for Razorpay
 CREDIT_PACKAGES = {
     "pack_100":  {"credits": 100,  "amount": 5000,   "label": "100 VxH Cr"},
     "pack_250":  {"credits": 250,  "amount": 12500,  "label": "250 VxH Cr"},
@@ -41,6 +43,21 @@ def get_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
+
+def send_telegram(text):
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        data = urllib.parse.urlencode({
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": text,
+            "parse_mode": "HTML"
+        }).encode()
+        req = urllib.request.Request(url, data=data)
+        urllib.request.urlopen(req, timeout=10)
+        return True
+    except Exception as e:
+        print("[TG ERROR]", e)
+        return False
 
 def init_db():
     conn = get_db()
@@ -74,6 +91,23 @@ def init_db():
         feature_key TEXT PRIMARY KEY,
         credits INTEGER NOT NULL,
         display_name TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS product_orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_code TEXT UNIQUE NOT NULL,
+        user_id INTEGER,
+        username TEXT,
+        telegram TEXT,
+        tool TEXT,
+        plan_type TEXT,
+        brand TEXT,
+        credits INTEGER,
+        price_inr INTEGER,
+        status TEXT DEFAULT 'pending',
+        download_link TEXT,
+        admin_note TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT,
+        FOREIGN KEY (user_id) REFERENCES users (id))""")
     for key, cost in FEATURE_COSTS.items():
         c.execute("INSERT OR IGNORE INTO feature_costs (feature_key, credits, display_name) VALUES (?, ?, ?)",
                   (key, cost, key.replace("_", " ").title()))
@@ -200,7 +234,7 @@ def get_packages():
 
 @app.route("/api/create-order", methods=["POST"])
 @login_required
-def create_order():
+def create_razorpay_order():
     data = request.get_json(silent=True) or {}
     pack_id = data.get("package")
     if pack_id not in CREDIT_PACKAGES:
@@ -252,6 +286,122 @@ def verify_payment():
     conn.close()
     return jsonify({"success": True, "message": "Payment successful", "credits_added": txn["credits_added"], "new_balance": user["credits"]})
 
+# ==================== PRODUCT ORDERS ====================
+@app.route("/api/orders/create", methods=["POST"])
+def create_product_order():
+    data = request.get_json(silent=True) or {}
+    tool = (data.get("tool") or "unknown").strip()
+    plan_type = (data.get("type") or "public").strip()
+    brand = (data.get("brand") or "unknown").strip()
+    credits = int(data.get("credits") or 0)
+    price_inr = int(data.get("price") or 0)
+    telegram = (data.get("telegram") or "").strip()
+    username = (data.get("username") or session.get("username") or "guest").strip().lower()
+    user_id = session.get("user_id")
+
+    if not telegram:
+        return jsonify({"success": False, "message": "Telegram username required"}), 400
+
+    order_code = "VxH-" + secrets.token_hex(4).upper()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    conn = get_db()
+    conn.execute("""INSERT INTO product_orders
+        (order_code, user_id, username, telegram, tool, plan_type, brand, credits, price_inr, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)""",
+        (order_code, user_id, username, telegram, tool, plan_type, brand, credits, price_inr, now))
+    conn.commit()
+    conn.close()
+
+    tg_msg = (
+        f"🛒 <b>NEW ORDER - VOIDXHUB</b>\n\n"
+        f"Order: <code>{order_code}</code>\n"
+        f"User: {username}\n"
+        f"Telegram: @{telegram.lstrip('@')}\n"
+        f"Tool: {tool}\n"
+        f"Plan: {plan_type.upper()}\n"
+        f"Brand: {brand.upper()}\n"
+        f"Cost: {credits} VxH Cr (₹{price_inr})\n"
+        f"Time: {now}\n\n"
+        f"Reply with download link using Admin Panel."
+    )
+    send_telegram(tg_msg)
+
+    return jsonify({
+        "success": True,
+        "order_code": order_code,
+        "message": "Order placed. Admin will verify and send download link."
+    })
+
+@app.route("/api/orders/my", methods=["GET"])
+def my_orders():
+    username = request.args.get("username") or session.get("username")
+    user_id = session.get("user_id")
+    conn = get_db()
+    if user_id:
+        rows = conn.execute("SELECT * FROM product_orders WHERE user_id = ? ORDER BY id DESC", (user_id,)).fetchall()
+    elif username:
+        rows = conn.execute("SELECT * FROM product_orders WHERE username = ? ORDER BY id DESC", (username.lower(),)).fetchall()
+    else:
+        conn.close()
+        return jsonify({"success": False, "message": "Login or username required"}), 401
+    conn.close()
+    orders = [dict(r) for r in rows]
+    return jsonify({"success": True, "orders": orders})
+
+@app.route("/api/orders/lookup", methods=["POST"])
+def lookup_order():
+    data = request.get_json(silent=True) or {}
+    code = (data.get("order_code") or "").strip().upper()
+    telegram = (data.get("telegram") or "").strip().lstrip("@").lower()
+    if not code:
+        return jsonify({"success": False, "message": "Order code required"}), 400
+    conn = get_db()
+    row = conn.execute("SELECT * FROM product_orders WHERE order_code = ?", (code,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({"success": False, "message": "Order not found"}), 404
+    if telegram and row["telegram"].lstrip("@").lower() != telegram:
+        return jsonify({"success": False, "message": "Telegram does not match"}), 403
+    return jsonify({"success": True, "order": dict(row)})
+
+@app.route("/api/admin/orders", methods=["GET"])
+@admin_required
+def admin_orders():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM product_orders ORDER BY id DESC LIMIT 100").fetchall()
+    conn.close()
+    return jsonify({"success": True, "orders": [dict(r) for r in rows]})
+
+@app.route("/api/admin/orders/fulfill", methods=["POST"])
+@admin_required
+def fulfill_order():
+    data = request.get_json(silent=True) or {}
+    order_code = (data.get("order_code") or "").strip().upper()
+    download_link = (data.get("download_link") or "").strip()
+    admin_note = (data.get("admin_note") or "").strip()
+    if not order_code or not download_link:
+        return jsonify({"success": False, "message": "order_code and download_link required"}), 400
+    conn = get_db()
+    row = conn.execute("SELECT * FROM product_orders WHERE order_code = ?", (order_code,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"success": False, "message": "Order not found"}), 404
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute("UPDATE product_orders SET status = 'delivered', download_link = ?, admin_note = ?, updated_at = ? WHERE order_code = ?",
+                 (download_link, admin_note, now, order_code))
+    conn.commit()
+    conn.close()
+
+    send_telegram(
+        f"✅ <b>ORDER DELIVERED</b>\n\n"
+        f"Order: <code>{order_code}</code>\n"
+        f"User: @{row['telegram'].lstrip('@')}\n"
+        f"Tool: {row['tool']} / {row['plan_type']}\n"
+        f"Link set. User can download from My Orders."
+    )
+    return jsonify({"success": True, "message": "Order fulfilled. User can download from My Orders."})
+
 @app.route("/api/admin/users", methods=["GET"])
 @admin_required
 def admin_users():
@@ -294,7 +444,7 @@ def admin_set_cost():
 
 @app.route("/")
 def home():
-    return jsonify({"status": "online", "service": "VOIDXHUB Backend", "version": "1.1", "currency": "VxH Cr", "rate": "1 INR = 2 VxH Cr"})
+    return jsonify({"status": "online", "service": "VOIDXHUB Backend", "version": "1.2", "currency": "VxH Cr", "rate": "1 INR = 2 VxH Cr"})
 
 init_db()
 
