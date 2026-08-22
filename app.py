@@ -33,6 +33,11 @@ ALLOWED_ORIGINS = {
     "capacitor://localhost",
     "http://localhost",
     "https://localhost",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:5500",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5500",
     "ionic://localhost",
     "https://voidxhub.in",
     "https://www.voidxhub.in",
@@ -324,7 +329,7 @@ def cors_preflight(_any):
 @app.after_request
 def add_security_headers(response):
     origin = request.headers.get("Origin")
-    if origin and origin in ALLOWED_ORIGINS:
+    if origin and (origin in ALLOWED_ORIGINS or origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1")):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, DELETE, OPTIONS"
@@ -575,7 +580,7 @@ def fulfill_order():
         return jsonify({"success": False, "error": "order_code and download_link required"}), 400
 
     conn = get_db()
-    row = conn.execute("SELECT * FROM product_orders WHERE order_code = ?", (order_code,)).fetchone()
+    row = conn.execute("SELECT * FROM product_orders WHERE order_code = ?", (code,)).fetchone()
     if not row:
         conn.close()
         return jsonify({"success": False, "error": "Order not found"}), 404
