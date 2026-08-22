@@ -1,65 +1,71 @@
-# VOIDXHUB Backend
+# VOIDXHUB Backend (Unified)
 
-Full backend for voidxhub.in
+Single backend for **voidxhub.in** website + Android/iOS Tournament App.
 
-- User Register / Login
-- Credits System
-- Razorpay Test Mode
-- SQL Database
-- Admin APIs
+## Features
+
+- User Register / Login (JWT auth – works for website + mobile)
+- **Product Orders** (Tools/Services)
+  - User places order → pays via UPI → enters UTR
+  - Admin verifies → uploads download link
+  - Link appears in user’s My Orders
+- **Full Tournament System**
+  - Create / manage tournaments
+  - Registration with team + players (IGN + UID)
+  - UPI + UTR payment verification
+  - Room ID / Password reveal after verification
+  - Results + Leaderboard
+  - Admin panel APIs
+- Telegram notifications for new orders
+- No Credits system (removed)
+- No Razorpay (removed)
 
 ## Deploy on Render
 
-1. New Web Service → Connect this repo
-2. Build: `pip install -r requirements.txt`
-3. Start: `gunicorn app:app`
+1. Connect this repo
+2. **Build Command**: `pip install -r requirements.txt`
+3. **Start Command**: `gunicorn app:app`
 4. Environment Variables:
 
 ```
-SECRET_KEY=any-long-random-string
+VOIDXHUB_ENV=production
+VOIDXHUB_SECRET=          # long random string (python -c "import secrets; print(secrets.token_hex(32))")
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=your-strong-password
-RAZORPAY_KEY_ID=rzp_test_xxxxxxxx
-RAZORPAY_KEY_SECRET=your_test_secret_key
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_CHAT_ID=...
+VOIDXHUB_ALLOWED_ORIGINS=https://voidxhub.in,https://www.voidxhub.in,capacitor://localhost,https://localhost
 ```
 
-## API Endpoints
+## Important Notes
+
+- SQLite database is created automatically (`voidxhub.db`)
+- On free Render plan the DB resets when the service sleeps/restarts. For production later move to Neon/PostgreSQL.
+- First admin user is created automatically from `ADMIN_USERNAME` / `ADMIN_PASSWORD`
+
+## Main API Groups
 
 ### Auth
-- `POST /api/register` → `{ "username": "...", "password": "..." }`
-- `POST /api/login` → `{ "username": "...", "password": "..." }`
-- `POST /api/logout`
-- `GET  /api/me` (login required)
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET  /api/auth/me`
+- `POST /api/auth/change-password`
 
-### Credits & Features
-- `GET  /api/features` → feature costs
-- `POST /api/use-feature` → `{ "feature": "esp" }` (deducts credits)
+### Product Orders (Tools / Services)
+- `POST /api/orders/create`
+- `GET  /api/orders/my`
+- `POST /api/orders/lookup`
+- Admin: `GET /api/admin/orders`, `POST /api/admin/orders/fulfill`
 
-### Razorpay (Test Mode)
-- `GET  /api/packages`
-- `POST /api/create-order` → `{ "package": "pack_100" }`
-- `POST /api/verify-payment` → razorpay response
+### Tournaments
+- `GET  /api/games`
+- `GET  /api/tournaments`
+- `GET  /api/tournaments/<id>`
+- `POST /api/tournaments/<id>/register`
+- `GET  /api/registrations/me`
+- `GET  /api/leaderboard`
+- Admin create/update/delete + payment verify + results
 
-### Admin
-- `GET  /api/admin/users`
-- `POST /api/admin/add-credits` → `{ "username": "...", "credits": 100 }`
-- `POST /api/admin/set-feature-cost` → `{ "feature": "esp", "credits": 50 }`
+## Version
 
-## Credit Packages (editable in app.py)
-
-| Package    | Credits | Price  |
-|------------|---------|--------|
-| pack_100   | 100     | ₹49    |
-| pack_300   | 300     | ₹129   |
-| pack_700   | 700     | ₹249   |
-| pack_1500  | 1500    | ₹499   |
-
-## Default Feature Costs
-
-| Feature            | Credits |
-|--------------------|---------|
-| esp                | 50      |
-| headshot_boost     | 40      |
-| aimbot             | 80      |
-| vxh_panel          | 100     |
-| sensitivity_boost  | 30      |
+2.0 – Tournament-first unified backend
