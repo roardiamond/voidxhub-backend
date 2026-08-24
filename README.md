@@ -1,47 +1,67 @@
-# VOIDXHUB Backend (Unified)
+# VOIDXHUB Backend
 
-Single backend for **voidxhub.in** website + Android/iOS Tournament App.
+Unified backend for **voidxhub.in** website and the Android/iOS Tournaments app.
+
+Built with Python for reliability, simplicity, and easy deployment.
 
 ## Features
 
-- User Register / Login (JWT auth – works for website + mobile)
-- **Product Orders** (Tools/Services)
-  - User places order → pays via UPI → enters UTR
-  - Admin verifies → uploads download link
-  - Link appears in user’s My Orders
-- **Full Tournament System**
-  - Create / manage tournaments
-  - Registration with team + players (IGN + UID)
-  - UPI + UTR payment verification
-  - Room ID / Password reveal after verification
-  - Results + Leaderboard
-  - Admin panel APIs
+### Authentication
+- User registration & login (JWT based)
+- Works for both website and mobile clients
+- Password change support
+
+### Product Orders (Tools / Services)
+- Create order → UPI payment → enter UTR
+- Admin verification flow
+- Download link delivery after approval
+- Order history for users
+
+### Tournament System
+- Create & manage tournaments
+- Team registration with player details (IGN + UID)
+- UPI + UTR payment verification
+- Room ID / Password reveal after verification
+- Results & leaderboard
+- Full admin APIs
+
+### Other
 - Telegram notifications for new orders
-- No Credits system (removed)
-- No Razorpay (removed)
+- CORS configured for web + Capacitor
+- SQLite for easy start (can migrate to PostgreSQL later)
 
-## Deploy on Render
+## Tech Stack
 
-1. Connect this repo
+- Python + Flask / Gunicorn
+- JWT Authentication
+- SQLite (default)
+- Telegram Bot API for notifications
+
+## Deployment (Render)
+
+1. Connect this repository
 2. **Build Command**: `pip install -r requirements.txt`
 3. **Start Command**: `gunicorn app:app`
-4. Environment Variables:
+4. Set environment variables:
 
 ```
 VOIDXHUB_ENV=production
-VOIDXHUB_SECRET=          # long random string (python -c "import secrets; print(secrets.token_hex(32))")
+VOIDXHUB_SECRET=<long-random-string>
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=your-strong-password
+ADMIN_PASSWORD=<strong-password>
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHAT_ID=...
-VOIDXHUB_ALLOWED_ORIGINS=https://voidxhub.in,https://www.voidxhub.in,capacitor://localhost,https://localhost
+VOIDXHUB_ALLOWED_ORIGINS=https://voidxhub.in,https://www.voidxhub.in,capacitor://localhost
 ```
 
-## Important Notes
+## Local Setup
 
-- SQLite database is created automatically (`voidxhub.db`)
-- On free Render plan the DB resets when the service sleeps/restarts. For production later move to Neon/PostgreSQL.
-- First admin user is created automatically from `ADMIN_USERNAME` / `ADMIN_PASSWORD`
+```bash
+git clone https://github.com/roardiamond/voidxhub-backend.git
+cd voidxhub-backend
+pip install -r requirements.txt
+python app.py
+```
 
 ## Main API Groups
 
@@ -49,23 +69,20 @@ VOIDXHUB_ALLOWED_ORIGINS=https://voidxhub.in,https://www.voidxhub.in,capacitor:/
 - `POST /api/auth/register`
 - `POST /api/auth/login`
 - `GET  /api/auth/me`
-- `POST /api/auth/change-password`
 
-### Product Orders (Tools / Services)
+### Orders
 - `POST /api/orders/create`
 - `GET  /api/orders/my`
-- `POST /api/orders/lookup`
-- Admin: `GET /api/admin/orders`, `POST /api/admin/orders/fulfill`
+- Admin fulfill endpoints
 
 ### Tournaments
-- `GET  /api/games`
-- `GET  /api/tournaments`
-- `GET  /api/tournaments/<id>`
-- `POST /api/tournaments/<id>/register`
-- `GET  /api/registrations/me`
-- `GET  /api/leaderboard`
-- Admin create/update/delete + payment verify + results
+- Full CRUD + registration + leaderboard + results
 
 ## Version
 
 2.0 – Tournament-first unified backend
+
+---
+
+**Maintainer**: YashXChi  
+Clean, reliable backend systems.
