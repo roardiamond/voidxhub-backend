@@ -1,10 +1,7 @@
 """Run once to set up the DB with an admin account and sample tournaments.
 Usage: python3 seed.py
-Usage: python3 seed.py --username youradmin --email you@example.com
 """
 import sys
-import secrets
-import string
 import sqlite3
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash
@@ -12,57 +9,67 @@ from werkzeug.security import generate_password_hash
 from db import get_db, init_db
 
 
-def generate_strong_password(length=16):
-    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
-    pw = [
-        secrets.choice(string.ascii_uppercase),
-        secrets.choice(string.ascii_lowercase),
-        secrets.choice(string.digits),
-        secrets.choice("!@#$%^&*"),
-    ]
-    pw += [secrets.choice(alphabet) for _ in range(length - len(pw))]
-    secrets.SystemRandom().shuffle(pw)
-    return "".join(pw)
-
-
-def parse_args():
-    args = {"username": "admin", "email": "admin@voidxhub.in"}
-    argv = sys.argv[1:]
-    for i, a in enumerate(argv):
-        if a == "--username" and i + 1 < len(argv):
-            args["username"] = argv[i + 1]
-        if a == "--email" and i + 1 < len(argv):
-            args["email"] = argv[i + 1]
-    return args
+# Fixed admin credentials as requested
+ADMIN_USERNAME = "yashxchi"
+ADMIN_EMAIL = "yashxchi@voidxhub.com"
+ADMIN_PASSWORD = "7011496531@yash"
 
 
 def seed():
     init_db()
     conn = get_db()
-    args = parse_args()
 
-    existing_admin = conn.execute("SELECT id FROM users WHERE role='admin' LIMIT 1").fetchone()
+    existing_admin = conn.execute(
+        "SELECT id, username FROM users WHERE role='admin' LIMIT 1"
+    ).fetchone()
+
     if existing_admin:
-        print("An admin account already exists — skipping admin creation.")
+        # Update existing admin to the requested credentials
+        conn.execute(
+            "UPDATE users SET username=?, email=?, password_hash=?, role='admin' WHERE id=?",
+            (
+                ADMIN_USERNAME,
+                ADMIN_EMAIL,
+                generate_password_hash(ADMIN_PASSWORD),
+                existing_admin["id"],
+            ),
+        )
+        conn.commit()
+        print("=" * 60)
+        print("ADMIN ACCOUNT UPDATED")
+        print("=" * 60)
+        print(f"  Username: {ADMIN_USERNAME}")
+        print(f"  Email:    {ADMIN_EMAIL}")
+        print(f"  Password: {ADMIN_PASSWORD}")
+        print("=" * 60)
     else:
-        password = generate_strong_password()
         try:
             conn.execute(
                 "INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, 'admin')",
-                (args["username"], args["email"], generate_password_hash(password)),
+                (ADMIN_USERNAME, ADMIN_EMAIL, generate_password_hash(ADMIN_PASSWORD)),
             )
             conn.commit()
             print("=" * 60)
-            print("ADMIN ACCOUNT CREATED — SAVE THIS NOW, IT WON'T BE SHOWN AGAIN")
+            print("ADMIN ACCOUNT CREATED")
             print("=" * 60)
-            print(f"  Username: {args['username']}")
-            print(f"  Email:    {args['email']}")
-            print(f"  Password: {password}")
+            print(f"  Username: {ADMIN_USERNAME}")
+            print(f"  Email:    {ADMIN_EMAIL}")
+            print(f"  Password: {ADMIN_PASSWORD}")
             print("=" * 60)
         except sqlite3.IntegrityError:
-            print("A user with that username/email already exists.")
-            conn.close()
-            return
+            # Username/email taken by non-admin — force update that row
+            conn.execute(
+                "UPDATE users SET email=?, password_hash=?, role='admin' WHERE username=?",
+                (ADMIN_EMAIL, generate_password_hash(ADMIN_PASSWORD), ADMIN_USERNAME),
+            )
+            conn.commit()
+            print("=" * 60)
+            print("ADMIN ACCOUNT FORCED / UPDATED")
+            print("=" * 60)
+            print(f"  Username: {ADMIN_USERNAME}")
+            print(f"  Email:    {ADMIN_EMAIL}")
+            print(f"  Password: {ADMIN_PASSWORD}")
+            print("=" * 60)
 
     bgmi = conn.execute("SELECT id FROM games WHERE slug='bgmi'").fetchone()
     valorant = conn.execute("SELECT id FROM games WHERE slug='valorant'").fetchone()
